@@ -2,54 +2,8 @@ import json
 import pickle
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
-import os
 from confluent_kafka import Consumer, Producer, KafkaError
-
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
-
-TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER')
-BOOTSTRAP_SERVERS = os.getenv('BOOTSTRAP_SERVERS')
-TOPIC_CONSUMER = os.getenv('TOPIC_CONSUMER')
-
-
-class KafkaProducer:
-    def __init__(self, bootstrap_servers):
-        self.producer = Producer({'bootstrap.servers': bootstrap_servers})
-
-    def produce(self, station, channel, data, start_time, end_time):
-        data = {
-            'station': station,
-            'channel': channel,
-            'starttime': start_time.isoformat(),
-            'endtime': end_time.isoformat(),
-            'data': data,
-            'len': len(data)
-        }
-        print(("=" * 20) + f"{station}____{channel}" + ("="*20))
-        print(data)
-        self.producer.produce(TOPIC_PRODUCER, key=station,
-                              value=json.dumps(data))
-
-
-class MissingDataHandler:
-    def __init__(self):
-        self.data_pool = {}
-        self.last_processed_time = {}
-
-    def handle_missing_data(self, station, channel, start_time, sampling_rate):
-        if station in self.last_processed_time and channel in self.last_processed_time[station]:
-            time_diff = start_time - self.last_processed_time[station][channel]
-            missing_samples = int(time_diff.total_seconds() * sampling_rate)
-            if missing_samples > 0:
-                missing_data = [0] * missing_samples
-                self.data_pool[station][channel].extend(missing_data)
-
-    def update_last_processed_time(self, station, channel, end_time):
-        if station not in self.last_processed_time:
-            self.last_processed_time[station] = {}
-        self.last_processed_time[station][channel] = end_time
+from .missing_data_handler import MissingDataHandler
 
 
 class KafkaDataProcessor:
@@ -102,7 +56,6 @@ class KafkaDataProcessor:
 
         self.data_handler.data_pool[station][channel].extend(data)
 
-        # Pool data hingga mencapai 128 data
         while len(self.data_handler.data_pool[station][channel]) >= 128:
             data_to_send = self.data_handler.data_pool[station][channel][:128]
             self.data_handler.data_pool[station][channel] = self.data_handler.data_pool[station][channel][128:]
@@ -121,16 +74,3 @@ class KafkaDataProcessor:
         self.data_handler.update_last_processed_time(
             station, channel, end_time)
         self.producer.produce(station, channel, data, start_time, end_time)
-
-
-if __name__ == "__main__":
-    kafka_config = {
-        'bootstrap.servers': BOOTSTRAP_SERVERS,
-        'group.id': 'my-group',
-        'auto.offset.reset': 'earliest'
-    }
-    consumer = Consumer(kafka_config)
-    producer = KafkaProducer(BOOTSTRAP_SERVERS)
-    data_handler = MissingDataHandler()
-    processor = KafkaDataProcessor(consumer, producer, data_handler)
-    processor.consume(TOPIC_CONSUMER)
