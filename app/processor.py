@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from confluent_kafka import Consumer, Producer, KafkaError
 from .missing_data_handler import MissingDataHandler
-
+import copy
 
 class KafkaDataProcessor:
     def __init__(self, consumer: Consumer, producer: Producer, data_handler: MissingDataHandler):
@@ -29,7 +29,9 @@ class KafkaDataProcessor:
 
             value = pickle.loads(msg.value())
             value = json.loads(value)
-            print(f"Data received: {value}")
+            logvalue = copy.copy(value)
+            logvalue["data"] = None
+            print(f"Data received: {logvalue}")
 
             self.__process_received_data(value)
 

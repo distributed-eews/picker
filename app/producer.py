@@ -2,7 +2,7 @@ import json
 import os
 from confluent_kafka import Producer
 from dotenv import load_dotenv
-
+import copy
 load_dotenv()
 
 TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER')
@@ -22,6 +22,8 @@ class KafkaProducer:
             'len': len(data)
         }
         print(("=" * 20) + f"{station}____{channel}" + ("="*20))
-        print(data)
+        logvalue = copy.copy(data)
+        logvalue["data"] = None
+        print(logvalue)
         self.producer.produce(TOPIC_PRODUCER, key=station,
                               value=json.dumps(data))
