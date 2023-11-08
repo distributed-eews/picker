@@ -31,3 +31,19 @@ class KafkaProducer:
             print('eews_queue_time: ', data['eews_queue_time'])
         self.producer.produce(TOPIC_PRODUCER, key=station,
                               value=json.dumps(data))
+        
+    def startTrace(self):
+        self.producer.produce(
+            topic=TOPIC_PRODUCER,
+            key="start",
+            value=json.dumps({"type":"start"}),
+        )
+        print("="*40, "Start Trace", "="*40)
+
+    def stopTrace(self):
+        self.producer.produce(
+            topic=TOPIC_PRODUCER,
+            key="stop",
+            value=json.dumps({"type":"stop"}),
+        )
+        print("="*40, "Stop Trace", "="*40)

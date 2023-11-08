@@ -98,6 +98,7 @@ class KafkaDataProcessor:
         print("="*20, "START", "="*20)
         self.data_handler.data_pool = {}
         self.data_handler.last_processed_time = {}
+        self.producer.startTrace()
 
     def _flush(self, sampling_rate):
         for station, stationDict in self.data_handler.data_pool.items():
@@ -109,4 +110,5 @@ class KafkaDataProcessor:
                     print("Flused ", station, channel, start_time, end_time)
                 self.producer.produce(station, channel, data_to_send, start_time, end_time)
         print("="*20, "END", "="*20)
+        self.producer.stopTrace()
 
