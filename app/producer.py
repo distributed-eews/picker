@@ -21,9 +21,8 @@ class KafkaProducer:
             'data': data,
             'len': len(data)
         }
-        print(("=" * 20) + f"{station}____{channel}" + ("="*20))
-        logvalue = copy.copy(data)
-        logvalue["data"] = None
-        print(logvalue)
+        if station == "BKB" and channel == "BHE":
+            print(("=" * 20) + f"{station}____{channel}" + ("="*20))
+            print(data['starttime'], data['endtime'])
         self.producer.produce(TOPIC_PRODUCER, key=station,
                               value=json.dumps(data))

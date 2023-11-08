@@ -14,9 +14,9 @@ class KafkaDataProcessor:
 
     def consume(self, topic: str):
         self.consumer.subscribe([topic])
-
+        i = 1
         while True:
-            msg = self.consumer.poll(1.0)
+            msg = self.consumer.poll(10.0)
 
             if msg is None:
                 print("No message received")
@@ -31,9 +31,16 @@ class KafkaDataProcessor:
             value = json.loads(value)
             logvalue = copy.copy(value)
             logvalue["data"] = None
-            print(f"Data received: {logvalue}")
-
-            self.__process_received_data(value)
+            if value["type"] == "start":
+                print(i)
+                self._start()
+            if value["type"] == "stop":
+                print(i)
+                i = 1
+                self._flush(sampling_rate=20)
+            if value["type"] == "trace":
+                i+=1
+                self.__process_received_data(value)
 
     def __process_received_data(self, value: Dict[str, Any]):
         station = value['station']
@@ -41,9 +48,14 @@ class KafkaDataProcessor:
         data = value['data']
         start_time = datetime.fromisoformat(value['starttime'])
         sampling_rate = value['sampling_rate']
-
+        if station == "BKB" and channel == "BHE":
+            print("Received ", station, channel)
+            print("from message: ",value['starttime'])
+            print("from datetime.fromisoformat(): ",start_time)
         self.data_handler.handle_missing_data(
             station, channel, start_time, sampling_rate)
+        if station == "BKB" and channel == "BHE":
+            print("from datetime.fromisoformat(): ",start_time)
         self.__store_data(station, channel, data, start_time, sampling_rate)
 
     def __store_data(self, station: str, channel: str, data: List[int], start_time: datetime, sampling_rate: float):
@@ -67,12 +79,30 @@ class KafkaDataProcessor:
             current_time = current_time + time_to_add
 
         remaining_data_len = len(self.data_handler.data_pool[station][channel])
-        print(
-            f"REMAINING DATA: {self.data_handler.data_pool[station][channel]}\nLEN: {remaining_data_len}")
-        print(
-            f"LAST PROCESSED TIME: {self.data_handler.last_processed_time[station][channel]}")
+        # print(
+        #     f"REMAINING DATA: {self.data_handler.data_pool[station][channel]}\nLEN: {remaining_data_len}")
+        # print(
+        #     f"LAST PROCESSED TIME: {self.data_handler.last_processed_time[station][channel]}")
 
     def __send_data_to_queue(self, station: str, channel: str, data: List[int], start_time: datetime, end_time: datetime):
         self.data_handler.update_last_processed_time(
             station, channel, end_time)
         self.producer.produce(station, channel, data, start_time, end_time)
+    
+
+    def _start(self):
+        print("="*20, "START", "="*20)
+        self.data_handler.data_pool = {}
+        self.data_handler.last_processed_time = {}
+
+    def _flush(self, sampling_rate):
+        for station, stationDict in self.data_handler.data_pool.items():
+            for channel, data_to_send in stationDict.items():
+                end_time = self.data_handler.last_processed_time[station][channel]
+                time_to_decrease = timedelta(seconds=len(data_to_send)/sampling_rate)
+                start_time = end_time - time_to_decrease
+                if station == "BKB" and channel == "BHE":
+                    print("Flused ", station, channel, start_time, end_time)
+                self.producer.produce(station, channel, data_to_send, start_time, end_time)
+        print("="*20, "END", "="*20)
+
