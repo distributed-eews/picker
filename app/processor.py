@@ -38,6 +38,9 @@ class KafkaDataProcessor:
             value = json.loads(msg.value())
             logvalue = copy.copy(value)
             logvalue["data"] = None
+            if "type" in value and value["type"] == "start":
+                self.pooler.reset()
+                continue
             if "type" in value and value["type"] != "trace":
                 continue
 
