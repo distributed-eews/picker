@@ -99,12 +99,16 @@ class KafkaDataProcessor:
         for i in range(0, retry):
             print(f"RETRING {i}: {url}")
             start_time = datetime.now()
-            response = requests.post(
-                url,
-                data=json.dumps(payload),
-                headers={"content-type": "application/json"},
-                timeout=3
-            )
+            try:
+                response = requests.post(
+                    url,
+                    data=json.dumps(payload),
+                    headers={"content-type": "application/json"},
+                    timeout=3
+                )
+            except Exception as e:
+                print(f"ERROR REQUEST: {str(e)}")
+                continue
             print(f"RESPONSE TEXT: {response.text}")
             end_time = datetime.now()
             process_time = (end_time - start_time).total_seconds()
