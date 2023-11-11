@@ -15,7 +15,7 @@ if __name__ == "__main__":
             'bootstrap_servers': BOOTSTRAP_SERVERS,
             'kafka_config': {
                 'bootstrap.servers': BOOTSTRAP_SERVERS,
-                'group.id': 'my-group',
+                'group.id': 'picker',
                 'auto.offset.reset': 'earliest',
             }
         }, True)

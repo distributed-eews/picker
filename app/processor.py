@@ -1,23 +1,31 @@
 import json
-import pickle
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
-from confluent_kafka import Consumer, Producer, KafkaError
-from .missing_data_handler import MissingDataHandler
-import copy
 from datetime import datetime
+from typing import Dict, Any
+from confluent_kafka import Consumer, Producer, KafkaError
+import copy
+from .pooler import Pooler
+import requests
+from dotenv import load_dotenv
+import os
+import time as t
+
+load_dotenv()
+
+P_URL = os.getenv('P_URL', 'http://localhost:3000/predict_p')
+S_URL = os.getenv('S_URL', 'http://localhost:3000/predict_s')
+TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER', 'pick')
+
 
 class KafkaDataProcessor:
-    def __init__(self, consumer: Consumer, producer: Producer, data_handler: MissingDataHandler):
+    def __init__(self, consumer: Consumer, producer: Producer, pooler: Pooler):
         self.consumer = consumer
-        self.data_handler = data_handler
         self.producer = producer
+        self.pooler = pooler
 
     def consume(self, topic: str):
         self.consumer.subscribe([topic])
-        i = 1
         while True:
-            msg = self.consumer.poll(10.0)
+            msg = self.consumer.poll(0.1)
             if msg is None:
                 print("No message received")
                 continue
@@ -27,88 +35,92 @@ class KafkaDataProcessor:
                 print(f"Error: {msg.error()}")
                 continue
 
-            value = pickle.loads(msg.value())
-            value = json.loads(value)
+            value = json.loads(msg.value())
             logvalue = copy.copy(value)
             logvalue["data"] = None
-            if value["type"] == "start":
-                print(i)
-                self._start()
-            if value["type"] == "stop":
-                print(i)
-                i = 1
-                self._flush(sampling_rate=20)
-            if value["type"] == "trace":
-                i+=1
-                self.__process_received_data(value, arrive_time=datetime.utcnow())
+            if "type" in value and value["type"] != "trace":
+                continue
 
-    def __process_received_data(self, value: Dict[str, Any], arrive_time: datetime):
+            print(("="*30) + "START" + ("="*30), end="\n")
+            print(f"RECEIVED MESSAGE: {logvalue}", end="\n")
+            self.__process_received_data(value)
+            print(("="*30) + "END" + ("="*30), end="\n")
+
+    def __process_received_data(self, value: Dict[str, Any]):
         station = value['station']
         channel = value['channel']
-        eews_producer_time = value['eews_producer_time']
+        starttime = datetime.fromisoformat(value['starttime'])
         data = value['data']
-        start_time = datetime.fromisoformat(value['starttime'])
-        sampling_rate = value['sampling_rate']
-        if station == "BKB" and channel == "BHE":
-            print("Received ", station, channel)
-            print("from message: ",value['starttime'])
-        self.data_handler.handle_missing_data(
-            station, channel, start_time, sampling_rate)
-        self.__store_data(station, channel, data, start_time, sampling_rate, 
-                          eews_producer_time=eews_producer_time, 
-                          arrive_time=arrive_time)
+        self.pooler.set_station_first_start_time(station, starttime)
+        self.pooler.extend_data_points(station, channel, data)
 
-    def __store_data(self, station: str, channel: str, data: List[int], start_time: datetime, sampling_rate: float, eews_producer_time, arrive_time: datetime):
-        if station not in self.data_handler.data_pool:
-            self.data_handler.data_pool[station] = {}
-        if channel not in self.data_handler.data_pool[station]:
-            self.data_handler.data_pool[station][channel] = []
+        is_ready_to_predict = self.pooler.is_ready_to_predict(station)
 
-        current_time = start_time
-        if station in self.data_handler.last_processed_time and channel in self.data_handler.last_processed_time[station]:
-            current_time = self.data_handler.last_processed_time[station][channel]
+        if is_ready_to_predict:
+            data_points = self.pooler.get_data_to_predict(station)
+            print(f"DATA POINTS: {data_points}")
+            time = self.pooler.get_station_time(station)
+            payload = {"x": data_points, "metadata": {
+                "f": 20.0, "time": str(time), "station": station}}
 
-        self.data_handler.data_pool[station][channel].extend(data)
+            result_p = self.__predict_ps(P_URL, payload)
+            if not result_p:
+                return
 
-        while len(self.data_handler.data_pool[station][channel]) >= 128:
-            data_to_send = self.data_handler.data_pool[station][channel][:128]
-            self.data_handler.data_pool[station][channel] = self.data_handler.data_pool[station][channel][128:]
-            time_to_add = timedelta(seconds=128/sampling_rate)
-            self.__send_data_to_queue(
-                station, channel, data_to_send, current_time, current_time + time_to_add, 
-                eews_producer_time=eews_producer_time,
-                arrive_time=arrive_time)
-            current_time = current_time + time_to_add
+            is_p_detected = self.__does_ps_exist(result_p["result"])
+            if not is_p_detected:
+                return
 
-        remaining_data_len = len(self.data_handler.data_pool[station][channel])
-        # print(
-        #     f"REMAINING DATA: {self.data_handler.data_pool[station][channel]}\nLEN: {remaining_data_len}")
-        # print(
-        #     f"LAST PROCESSED TIME: {self.data_handler.last_processed_time[station][channel]}")
+            value_to_produce = {
+                "station": station,
+                "channel": channel,
+                "time": str(time),
+                "type": "p",
+                "process_time": result_p["process_time"]
+            }
+            self.producer.produce(value_to_produce)
 
-    def __send_data_to_queue(self, station: str, channel: str, data: List[int], start_time: datetime, end_time: datetime, eews_producer_time, arrive_time: datetime):
-        self.data_handler.update_last_processed_time(
-            station, channel, end_time)
-        self.producer.produce(station, channel, data, start_time, end_time, 
-                              eews_producer_time=eews_producer_time, 
-                              arrive_time=arrive_time)
-    
+            payload.update({"reset": True})
+            result_s = self.__predict_ps(S_URL, payload)
+            if not result_s:
+                return
 
-    def _start(self):
-        print("="*20, "START", "="*20)
-        self.data_handler.data_pool = {}
-        self.data_handler.last_processed_time = {}
-        self.producer.startTrace()
+            is_s_detected = self.__does_ps_exist(result_s["result"])
+            if is_s_detected:
+                value_to_produce.update(
+                    {"type": "s", "process_time": result_s["process_time"]})
+                self.producer.produce(value_to_produce)
 
-    def _flush(self, sampling_rate):
-        for station, stationDict in self.data_handler.data_pool.items():
-            for channel, data_to_send in stationDict.items():
-                end_time = self.data_handler.last_processed_time[station][channel]
-                time_to_decrease = timedelta(seconds=len(data_to_send)/sampling_rate)
-                start_time = end_time - time_to_decrease
-                if station == "BKB" and channel == "BHE":
-                    print("Flused ", station, channel, start_time, end_time)
-                self.producer.produce(station, channel, data_to_send, start_time, end_time)
-        print("="*20, "END", "="*20)
-        self.producer.stopTrace()
+    def __predict_ps(self, url: str, payload: dict, retry=3):
+        res = None
+        for i in range(0, retry):
+            print(f"RETRING {i}: {url}")
+            start_time = datetime.now()
+            response = requests.post(
+                url,
+                data=json.dumps(payload),
+                headers={"content-type": "application/json"},
+                timeout=3
+            )
+            print(f"RESPONSE TEXT: {response.text}")
+            end_time = datetime.now()
+            process_time = (end_time - start_time).total_seconds()
+            result = json.loads(response.text)
+            if isinstance(result, list):
+                res = {
+                    "process_time": process_time,
+                    "result": result
+                }
+                print(f"RESULT FROM {url}: {res}")
+                return res
+            res = result
+            t.sleep(1)
+        print(f"RESULT FROM {url}: {res}")
+        return None
 
+    def __does_ps_exist(self, result_ps: list[list[int]]):
+        for ls in result_ps:
+            for p in ls:
+                if float(p) > 0.5:
+                    return True
+        return False

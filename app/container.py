@@ -1,7 +1,7 @@
 from confluent_kafka import Consumer
 from .producer import KafkaProducer
-from .missing_data_handler import MissingDataHandler
 from .processor import KafkaDataProcessor
+from .pooler import Pooler
 from dependency_injector import containers, providers
 
 
@@ -10,8 +10,8 @@ class KafkaContainer(containers.DeclarativeContainer):
     producer = providers.Singleton(
         KafkaProducer,
         bootstrap_servers=config.bootstrap_servers,
-    )
-    data_handler = providers.Singleton(MissingDataHandler)
+    ) 
+    pooler = providers.Singleton(Pooler)
     consumer = providers.Singleton(
         Consumer,
         config.kafka_config
@@ -20,5 +20,5 @@ class KafkaContainer(containers.DeclarativeContainer):
         KafkaDataProcessor,
         consumer=consumer,
         producer=producer,
-        data_handler=data_handler,
+        pooler=pooler,
     )
