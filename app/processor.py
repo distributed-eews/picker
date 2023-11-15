@@ -1,13 +1,13 @@
 import json
 from datetime import datetime
 from typing import Dict, Any
-from confluent_kafka import Consumer, Producer, KafkaError
 import copy
-from .pooler import Pooler
+import time as t
+import os
+from confluent_kafka import Consumer, Producer
 import requests
 from dotenv import load_dotenv
-import os
-import time as t
+from .pooler import Pooler
 
 load_dotenv()
 
@@ -24,17 +24,19 @@ class KafkaDataProcessor:
 
     def consume(self, topic: str):
         self.consumer.subscribe([topic])
+        show_nf = True
         while True:
             msg = self.consumer.poll(0.1)
             if msg is None:
-                print("No message received")
+                if show_nf:
+                    print("No message received")
+                show_nf = False
                 continue
             if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
                 print(f"Error: {msg.error()}")
                 continue
 
+            show_nf = True
             value = json.loads(msg.value())
             logvalue = copy.copy(value)
             logvalue["data"] = None
