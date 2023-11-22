@@ -20,6 +20,8 @@ PRED_URL = os.getenv('PRED_URL', 'http://localhost:3000/predict')
 INIT_URL = os.getenv('INIT_URL', 'http://localhost:3000/restart')
 STAT_URL = os.getenv(
     'STAT_URL', 'http://localhost:3000/approx_earthquake_statistics')
+REC_URL = os.getenv(
+    'REC_URL', 'http://localhost:3000/recalculate')
 TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER', 'pick')
 
 
@@ -191,15 +193,17 @@ class KafkaDataProcessor:
         if res:
             result = res["result"]
             result["process_time"] = res["process_time"]
-            result["type"] = "stats"
             self.redis.save_waveform(station, result)
             wf3 = self.redis.get_3_waveform(station)
             if wf3 is not None and len(wf3) == 3:
+                epic = self.__get_epic_ml(wf3)
                 payload = {
                     "time": time.isoformat(),
-                    **wf3[0],
-                    "location": self.__get_epic(wf3),
-                    "magnitude": self.__get_mag(wf3)
+                    **epic,
+                    # **wf3[0],
+                    # "location": self.__get_epic(wf3),
+                    # "magnitude": self.__get_mag(wf3),
+                    "type": "params"
                 }
                 print(f"PAYLOAD: {payload}")
                 self.producer.produce(payload)
@@ -300,3 +304,32 @@ class KafkaDataProcessor:
             mag += w["magnitude"]
 
         return mag / 3
+
+    def __get_epic_ml(self, wf: list[dict]):
+        station_codes = []
+        station_latitudes = []
+        station_longitudes = []
+        magnitudes = []
+        distances = []
+        depths = []
+
+        for w in wf:
+            station_codes.append(w["station_code"])
+            station_latitudes.append(wf["location"][0])
+            station_longitudes.append(wf["location"][1])
+            magnitudes.append(float(wf["magnitude"]))
+            distances.append(float(wf["distance"]))
+            depths.append(float(wf["depth"]))
+
+        res = self.__req(REC_URL, {
+            "station_codes": station_codes,
+            "station_latitudes": station_latitudes,
+            "station_longitudes": station_longitudes,
+            "magnitudes": magnitudes,
+            "distances": distances,
+            "depths": depths
+        })
+
+        if res is not None:
+            return res
+        return {}
