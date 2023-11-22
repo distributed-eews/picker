@@ -71,31 +71,23 @@ class KafkaDataProcessor:
         channel = value['channel']
         starttime = datetime.fromisoformat(value['starttime'])
         data = value['data']
-        print("TEST 1")
         self.pooler.set_station_first_start_time(station, starttime)
-        print("TEST 2")
         self.pooler.extend_data_points(station, channel, data)
-        print("TEST 3")
 
         is_ready_to_init = self.pooler.is_ready_to_init(station)
-        print("TEST 4")
         has_initiated = self.pooler.has_initiated(station)
-        print("TEST 5")
 
         if not has_initiated and not is_ready_to_init:
             return
 
         if not has_initiated and is_ready_to_init:
-            print("TEST 6")
             self.__init_station(station)
             return
 
         is_ready_to_predict = self.pooler.is_ready_to_predict(station)
 
         if is_ready_to_predict:
-            print("TEST 7")
             self.__predict(station)
-            print("TEST 8")
 
     def __init_station(self, station: str) -> None:
         stats_init = self.pooler.initiated_stations
@@ -108,9 +100,6 @@ class KafkaDataProcessor:
         res2 = self.__req(PRED_URL, {"station_code": station, "begin_time": time.strftime(
             "%Y-%m-%d %H:%M:%S.%f"), "x": data})
 
-        print(f"RES1 AND RES2: {res1 and res2}")
-        print(res1)
-        print(res2)
         if res1 and res2:
             self.pooler.add_initiated_station(station)
         else:
@@ -120,10 +109,7 @@ class KafkaDataProcessor:
         time = self.pooler.get_station_time(station)
         data = self.pooler.get_data_to_predict(station)
         data_t = [list(x) for x in zip(*data)]
-        print("TEST 7.1")
         self.pooler.print_ps_info(station)
-        print("TEST 7.2")
-        print(f"NEXT DATA: {data}")
 
         res = self.__req(PRED_URL, {"station_code": station, "begin_time": time.strftime(
             "%Y-%m-%d %H:%M:%S.%f"), "x": data_t})
@@ -134,27 +120,21 @@ class KafkaDataProcessor:
         result = res["result"]
 
         if not result["init_end"]:
-            print("TEST 7.3")
             self.pooler.set_caches(station, data)
             return
 
         if not result["p_arr"]:
-            print("TEST 7.4")
             self.pooler.set_caches(station, data)
             return
 
         p_arr = result["p_arr"]
         s_arr = result["s_arr"]
 
-        print("TEST 7.4")
-        print(res)
         if p_arr or s_arr:
-            print("TEST 7.5")
             result = res["result"]
             result["process_time"] = res["process_time"]
             result["type"] = "ps"
             self.producer.produce(result)
-            print("TEST 7.6")
         prev_p_time_exists = station in self.pooler.station_p_time
         prev_s_time_exists = station in self.pooler.station_s_time
 
@@ -189,7 +169,6 @@ class KafkaDataProcessor:
         data_cache_t = self.__transpose(data_cache)
         res = self.__req(
             STAT_URL, {"x": data_cache_t, "station_code": station})
-        print(f"STATS: {res}")
         if res:
             result = res["result"]
             result["process_time"] = res["process_time"]
@@ -205,7 +184,6 @@ class KafkaDataProcessor:
                     # "magnitude": self.__get_mag(wf3),
                     "type": "params"
                 }
-                print(f"PAYLOAD: {payload}")
                 self.producer.produce(payload)
 
         self.pooler.reset_ps(station)

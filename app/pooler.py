@@ -56,10 +56,10 @@ class Pooler:
 
         self.cache[station][channel].extend(data)
 
-    def set_caches(self, station: str, data: List[List[int]]):
+    def set_caches(self, station: str, data: List[List[int]], extend=False):
         for i in range(3):
             channel = CHANNELS[i]
-            self.set_cache(station, channel, data[i])
+            self.set_cache(station, channel, data[i], extend)
 
     def set_station_first_start_time(self, station: str, start_time: datetime):
         if not station in self.station_first_start_time:
