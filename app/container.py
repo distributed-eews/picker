@@ -2,6 +2,7 @@ from confluent_kafka import Consumer
 from .producer import KafkaProducer
 from .processor import KafkaDataProcessor
 from .pooler import Pooler
+from .myredis import MyRedis
 from dependency_injector import containers, providers
 
 
@@ -10,8 +11,9 @@ class KafkaContainer(containers.DeclarativeContainer):
     producer = providers.Singleton(
         KafkaProducer,
         bootstrap_servers=config.bootstrap_servers,
-    ) 
+    )
     pooler = providers.Singleton(Pooler)
+    redis = providers.Singleton(MyRedis, config=config.redis)
     consumer = providers.Singleton(
         Consumer,
         config.kafka_config
@@ -21,4 +23,5 @@ class KafkaContainer(containers.DeclarativeContainer):
         consumer=consumer,
         producer=producer,
         pooler=pooler,
+        redis=redis,
     )

@@ -6,6 +6,8 @@ load_dotenv()
 
 BOOTSTRAP_SERVERS = os.getenv('BOOTSTRAP_SERVERS')
 TOPIC_CONSUMER = os.getenv('TOPIC_CONSUMER')
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
 
 
 if __name__ == "__main__":
@@ -17,6 +19,10 @@ if __name__ == "__main__":
                 'bootstrap.servers': BOOTSTRAP_SERVERS,
                 'group.id': 'picker',
                 'auto.offset.reset': 'earliest',
+            },
+            'redis': {
+                'host': REDIS_HOST,
+                'port': int(REDIS_PORT),
             }
         }, True)
     data_processor = container.data_processor()
