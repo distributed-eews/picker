@@ -8,7 +8,10 @@ BOOTSTRAP_SERVERS = os.getenv('BOOTSTRAP_SERVERS')
 TOPIC_CONSUMER = os.getenv('TOPIC_CONSUMER')
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
-
+MONGO_DB = os.getenv('MONGO_DB', 'eews')
+MONGO_HOST = os.getenv('MONGO_HOST', 'localhost')
+MONGO_PORT = os.getenv('MONGO_PORT', '27017')
+MONGO_COLLECTION = os.getenv('MONGO_COLLECTION', 'parameters')
 
 if __name__ == "__main__":
     container = KafkaContainer()
@@ -23,6 +26,12 @@ if __name__ == "__main__":
             'redis': {
                 'host': REDIS_HOST,
                 'port': int(REDIS_PORT),
+            },
+            'mongo': {
+                'db_name': MONGO_DB,
+                'host': MONGO_HOST,
+                'port': int(MONGO_PORT),
+                'collection': MONGO_COLLECTION,
             }
         }, True)
     data_processor = container.data_processor()

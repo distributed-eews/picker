@@ -9,8 +9,10 @@ import requests
 from dotenv import load_dotenv
 from .pooler import Pooler
 from .myredis import MyRedis
+from .mongo import MongoDBClient
 import numpy as np
 from scipy.optimize import minimize
+import math
 
 
 load_dotenv()
@@ -26,11 +28,12 @@ TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER', 'pick')
 
 
 class KafkaDataProcessor:
-    def __init__(self, consumer: Consumer, producer: Producer, pooler: Pooler, redis: MyRedis):
+    def __init__(self, consumer: Consumer, producer: Producer, pooler: Pooler, redis: MyRedis, mongo: MongoDBClient):
         self.consumer = consumer
         self.producer = producer
         self.pooler = pooler
         self.redis = redis
+        self.mongo = mongo
 
     def consume(self, topic: str):
         self.consumer.subscribe([topic])
@@ -51,6 +54,9 @@ class KafkaDataProcessor:
                 value = json.loads(msg.value())
                 logvalue = copy.copy(value)
                 logvalue["data"] = None
+                # # TODO: Comment this
+                # if value["station"] != 'PLAI':
+                #     continue
                 if "type" in value and value["type"] == "start":
                     self.pooler.reset()
                     continue
@@ -90,8 +96,8 @@ class KafkaDataProcessor:
             self.__predict(station)
 
     def __init_station(self, station: str) -> None:
-        stats_init = self.pooler.initiated_stations
-        print(f"INITIATED STATIONS: {stats_init}")
+        # stats_init = self.pooler.initiated_stations
+        # print(f"INITIATED STATIONS: {stats_init}")
         time = self.pooler.get_station_time(station)
         data = self.pooler.get_data_to_init(station)
         data = [list(x) for x in zip(*data)]
@@ -109,7 +115,15 @@ class KafkaDataProcessor:
         time = self.pooler.get_station_time(station)
         data = self.pooler.get_data_to_predict(station)
         data_t = [list(x) for x in zip(*data)]
-        self.pooler.print_ps_info(station)
+        # self.pooler.print_ps_info(station)
+
+        begin_time = time.strftime("%Y-%m-%d %H:%M:%S.%f")
+        print(f"BEGIN TIME: {time}, FORMATEDD: {begin_time}")
+        # # TODO: Comment this
+        # if True:
+        #     self.pooler.set_caches(station, data, True)
+        #     self.__pred_stats(station, time)
+        #     return
 
         res = self.__req(PRED_URL, {"station_code": station, "begin_time": time.strftime(
             "%Y-%m-%d %H:%M:%S.%f"), "x": data_t})
@@ -134,6 +148,7 @@ class KafkaDataProcessor:
             result = res["result"]
             result["process_time"] = res["process_time"]
             result["type"] = "ps"
+            result["station"] = station
             self.producer.produce(result)
         prev_p_time_exists = station in self.pooler.station_p_time
         prev_s_time_exists = station in self.pooler.station_s_time
@@ -174,7 +189,8 @@ class KafkaDataProcessor:
             result["process_time"] = res["process_time"]
             self.redis.save_waveform(station, result)
             wf3 = self.redis.get_3_waveform(station)
-            if wf3 is not None and len(wf3) == 3:
+            print(f"WF3: {wf3}")
+            if wf3 is not None and len(wf3) >= 3:
                 epic = self.__get_epic_ml(wf3)
                 payload = {
                     "time": time.isoformat(),
@@ -182,18 +198,22 @@ class KafkaDataProcessor:
                     # **wf3[0],
                     # "location": self.__get_epic(wf3),
                     # "magnitude": self.__get_mag(wf3),
+                    "station": station,
                     "type": "params"
                 }
                 self.producer.produce(payload)
+                self.redis.remove_3_waveform_dict(wf3)
+                self.mongo.create(payload)
+                print("SAVED TO MONGODB")
 
         self.pooler.reset_ps(station)
 
     def __req(self, url: str, data: Dict[str, Any], retry=3, timeout=3):
-        print(f"REQUEST TO {url} with PAYLOAD {data}")
+        print(f"REQUEST TO {url}")
         for i in range(retry):
             start_time = datetime.now()
             try:
-                print(f"RETRY {i + 1}")
+                # print(f"RETRY {i + 1}")
                 response = requests.post(
                     url, data=json.dumps(data), timeout=timeout)
                 print(f"RESPONSE TEXT: {response.text}")
@@ -204,7 +224,7 @@ class KafkaDataProcessor:
                         "process_time": process_time,
                         "result": {}
                     }
-                    print(f"RESULT FROM 1 {url}: {res}")
+                    # print(f"RESULT FROM 1 {url}: {res}")
                     return res
                 result = json.loads(response.text)
                 result = json.loads(result)
@@ -213,7 +233,7 @@ class KafkaDataProcessor:
                         "process_time": process_time,
                         "result": result
                     }
-                    print(f"RESULT FROM 2 {url}: {res}")
+                    # print(f"RESULT FROM 2 {url}: {res}")
                     return res
             except Exception as e:
                 print(f"ERROR REQUEST: {str(e)}")
@@ -244,7 +264,7 @@ class KafkaDataProcessor:
 
         initial_guess = (p1 + p2 + p3) / 3
         result = minimize(total_error, initial_guess, method='Nelder-Mead')
-        print(result)
+        # print(result)
 
         if not result.success:
             raise ValueError("Optimization failed")
@@ -293,21 +313,141 @@ class KafkaDataProcessor:
 
         for w in wf:
             station_codes.append(w["station_code"])
-            station_latitudes.append(wf["location"][0])
-            station_longitudes.append(wf["location"][1])
-            magnitudes.append(float(wf["magnitude"]))
-            distances.append(float(wf["distance"]))
-            depths.append(float(wf["depth"]))
+            station_latitudes.append(w["location"][0])
+            station_longitudes.append(w["location"][1])
+            magnitudes.append(float(w["magnitude"]))
+            distances.append(float(w["distance"]))
+            depths.append(float(w["depth"]))
 
-        res = self.__req(REC_URL, {
+        payload = {
             "station_codes": station_codes,
             "station_latitudes": station_latitudes,
             "station_longitudes": station_longitudes,
             "magnitudes": magnitudes,
             "distances": distances,
             "depths": depths
-        })
+        }
+        print(f"REC PAYLOAD: {payload}")
+        # res = self.__req(REC_URL, payload)
+        res = self.recalculate(payload)
+        print(f"REC RES: {res}")
 
         if res is not None:
             return res
         return {}
+
+    def recalculate(self, input_data: dict) -> dict:
+        # Unpack json data
+        magnitudes: np.ndarray = np.array(input_data["magnitudes"])
+        distances: np.ndarray = np.array(
+            input_data["distances"]).astype(np.complex128)
+        station_latitudes: np.ndarray = np.array(
+            input_data["station_latitudes"]).astype(np.complex128)
+        station_longitudes: np.ndarray = np.array(
+            input_data["station_longitudes"]).astype(np.complex128)
+
+        # Cache values
+        station_latitudes_rad = station_latitudes / 180.0 * np.pi * 6371.0
+        station_longitudes_rad = station_longitudes / 180.0 * np.pi * 6371.0
+
+        # Recalculate magnitude
+        magnitude = np.mean(magnitudes)
+
+        # Recalculate location
+        # TODO : This formula is only for flat euclidian R2 space,
+        #  find another more precise formula for intersection of three spheres.
+        points = []
+        for i in range(len(station_latitudes)-1):
+            for j in range(i+1, len(station_latitudes)):
+                # distance between two stations
+                R = self.haversine(station_latitudes[i], station_longitudes[i],
+                                   station_latitudes[j], station_longitudes[j])
+
+                # Radians position of two stations
+                xi = station_latitudes_rad[i]
+                yi = station_longitudes_rad[i]
+                xj = station_latitudes_rad[j]
+                yj = station_longitudes_rad[j]
+                ri = distances[i]
+                rj = distances[j]
+
+                x_delta = 0.5 * np.sqrt(
+                    2 * (ri**2+rj**2)/R**2 - (ri**2-rj**2)**2/R**4 - 1
+                ) * (yj-yi)
+
+                y_delta = 0.5 * np.sqrt(
+                    2 * (ri**2+rj**2)/R**2 - (ri**2-rj**2)**2/R**4 - 1
+                ) * (xi-xj)
+
+                x_base = 0.5*(xi+xj) + (ri**2-rj**2)/(2*R**2) * (xj-xi)
+
+                y_base = 0.5*(yi+yj) + (ri**2-rj**2)/(2*R**2) * (yj-yi)
+
+                x_1 = x_base + x_delta
+                x_2 = x_base - x_delta
+                y_1 = y_base + y_delta
+                y_2 = y_base - y_delta
+
+                points.append(np.array([[x_1, y_1], [x_2, y_2]]))
+
+        # Find points with the least variance
+        triplets = []
+        variances = []
+        for i in range(2):
+            for j in range(2):
+                for k in range(2):
+                    # Generate triplets
+                    triplet: np.ndarray = np.array(
+                        [points[0][i], points[1][j], points[2][k]])
+                    triplets.append(triplet)
+
+                    # Calculate variance
+                    variances.append(triplet.var(axis=0).sum())
+
+        # Select the triplets with the least variance value
+        variances = np.array(variances)
+        argmin = variances.argmin()
+
+        # Retrieve argmin-th triplet
+        triplet: np.ndarray = triplets[argmin]
+
+        # Project triplet into real number
+        triplet = triplet.real
+
+        # Take the average
+        ans = triplet.mean(axis=0)
+
+        # Convert result back to degree
+        ans *= 180 / np.pi / 6371.0
+
+        # Compose output
+        output = {
+            "station_codes": input_data["station_codes"],
+            "magnitude": float(magnitude),
+            "latitude": float(ans[0]),
+            "longitude": float(ans[1]),
+            "depth": 0.0
+        }
+
+        return output
+
+    def haversine(self, lat1, lon1, lat2, lon2):
+
+        # Convert latitude and longitude from degrees to radians
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
+
+        # Difference in coordinates
+        dlat = lat2_rad - lat1_rad
+        dlon = lon2_rad - lon1_rad
+
+        # Haversine formula
+        a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * \
+            math.cos(lat2_rad) * math.sin(dlon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        distance = 6371.0 * c
+
+        return distance

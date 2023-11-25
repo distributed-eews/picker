@@ -5,7 +5,7 @@ import json
 
 class MyRedis:
     def __init__(self, config: dict[str, Any]):
-        self.c = redis.Redis(**config)
+        self.c = redis.Redis(**config, decode_responses=True)
 
     def get_nearest_stations(self, station: str) -> list[str]:
         n = self.c.get(f'NEAREST_STATION_{station}')
@@ -18,7 +18,7 @@ class MyRedis:
         return len(n) >= 2
 
     def save_waveform(self, station: str, waveform: dict):
-        self.c.set(f"WAVEFORM_{station}", json.dumps(waveform), 10)
+        self.c.set(f"WAVEFORM_{station}", json.dumps(waveform), 60)
 
     def get_waveform(self, station: str) -> dict | None:
         r = self.c.get(f"WAVEFORM_{station}")
@@ -32,8 +32,8 @@ class MyRedis:
         if not has_2_nearest:
             return False
 
-        stats = nearest_stats.extend(station)
-        for stat in stats:
+        nearest_stats.extend([station])
+        for stat in nearest_stats:
             r = self.get_waveform(stat)
             if r is None:
                 return False
@@ -50,13 +50,12 @@ class MyRedis:
     def get_3_waveform(self, station: str):
         if not self.has_3_waveform(station):
             return None
-
         nearest_stats = self.get_nearest_stations(station)
-        stats = nearest_stats.extend(station)
+        nearest_stats.extend([station])
 
         data = []
 
-        for stat in stats:
+        for stat in nearest_stats:
             wf = self.get_waveform(stat)
             loc = self.get_loc(stat)
             if wf is None or loc is None:
@@ -65,3 +64,12 @@ class MyRedis:
             wf["distance"] = float(wf["distance"])
             data.append(wf)
         return data
+
+    def remove_3_waveform(self, stations: list[str]) -> None:
+        for station in stations:
+            self.c.delete(station)
+
+    def remove_3_waveform_dict(self, wfs: list[dict[str]]) -> None:
+        for wf in wfs:
+            station = wf["station_code"]
+            self.c.delete(f"WAVEFORM_{station}")
