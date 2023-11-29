@@ -14,6 +14,7 @@ MONGO_PORT = os.getenv('MONGO_PORT', '27017')
 MONGO_COLLECTION = os.getenv('MONGO_COLLECTION', 'parameters')
 
 if __name__ == "__main__":
+    print("1")
     container = KafkaContainer()
     container.config.from_dict(
         {

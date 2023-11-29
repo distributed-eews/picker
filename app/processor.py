@@ -63,13 +63,14 @@ class KafkaDataProcessor:
                 if "type" in value and value["type"] != "trace":
                     continue
 
-                print(("="*30) + "START" + ("="*30), end="\n")
-                print(f"RECEIVED MESSAGE: {logvalue}", end="\n")
+                # print(("="*30) + "START" + ("="*30), end="\n")
+                # print(f"RECEIVED MESSAGE: {logvalue}", end="\n")
                 self.__process_received_data(value)
-                print(("="*30) + "END" + ("="*30), end="\n")
+                # print(("="*30) + "END" + ("="*30), end="\n")
             except Exception as e:
                 print(f"ERROR: {str(e)}")
-                print(("="*30) + "END" + ("="*30), end="\n")
+                print(e)
+                # print(("="*30) + "END" + ("="*30), end="\n")
                 continue
 
     def __process_received_data(self, value: Dict[str, Any]):
@@ -87,6 +88,7 @@ class KafkaDataProcessor:
             return
 
         if not has_initiated and is_ready_to_init:
+            print("init ",station, channel)
             self.__init_station(station)
             return
 
@@ -96,8 +98,8 @@ class KafkaDataProcessor:
             self.__predict(station)
 
     def __init_station(self, station: str) -> None:
-        # stats_init = self.pooler.initiated_stations
-        # print(f"INITIATED STATIONS: {stats_init}")
+        stats_init = self.pooler.initiated_stations
+        print(f"INITIATED STATIONS: {stats_init}")
         time = self.pooler.get_station_time(station)
         data = self.pooler.get_data_to_init(station)
         data = [list(x) for x in zip(*data)]
@@ -118,7 +120,7 @@ class KafkaDataProcessor:
         # self.pooler.print_ps_info(station)
 
         begin_time = time.strftime("%Y-%m-%d %H:%M:%S.%f")
-        print(f"BEGIN TIME: {time}, FORMATEDD: {begin_time}")
+        # print(f"BEGIN TIME: {time}, FORMATEDD: {begin_time}")
         # # TODO: Comment this
         # if True:
         #     self.pooler.set_caches(station, data, True)
@@ -183,14 +185,16 @@ class KafkaDataProcessor:
         data_cache = self.pooler.get_cache(station)
         data_cache_t = self.__transpose(data_cache)
         res = self.__req(
-            STAT_URL, {"x": data_cache_t, "station_code": station})
+            STAT_URL, {"x": data_cache_t, "station_code": station}, isPred=True)
         if res:
             result = res["result"]
             result["process_time"] = res["process_time"]
             self.redis.save_waveform(station, result)
             wf3 = self.redis.get_3_waveform(station)
             print(f"WF3: {wf3}")
+            # self.producer.produce({"wf3": wf3})
             if wf3 is not None and len(wf3) >= 3:
+                print("X"*40)
                 epic = self.__get_epic_ml(wf3)
                 payload = {
                     "time": time.isoformat(),
@@ -198,25 +202,29 @@ class KafkaDataProcessor:
                     # **wf3[0],
                     # "location": self.__get_epic(wf3),
                     # "magnitude": self.__get_mag(wf3),
-                    "station": station,
+                    "station": "PARAMS",
                     "type": "params"
                 }
                 self.producer.produce(payload)
                 self.redis.remove_3_waveform_dict(wf3)
-                self.mongo.create(payload)
+                # self.mongo.create(payload)
                 print("SAVED TO MONGODB")
 
         self.pooler.reset_ps(station)
 
-    def __req(self, url: str, data: Dict[str, Any], retry=3, timeout=3):
-        print(f"REQUEST TO {url}")
+    def __req(self, url: str, data: Dict[str, Any], isPred=False, retry=3, timeout=30):
         for i in range(retry):
             start_time = datetime.now()
             try:
                 # print(f"RETRY {i + 1}")
                 response = requests.post(
                     url, data=json.dumps(data), timeout=timeout)
-                print(f"RESPONSE TEXT: {response.text}")
+                if response.status_code != 200:
+                    print(response.status_code, response.reason)
+                    print(response.json())
+                if isPred:
+                    print(f"REQUEST TO {url}, retry {i}")
+                    print(f"RESPONSE TEXT: {response.text}")
                 end_time = datetime.now()
                 process_time = (end_time - start_time).total_seconds()
                 if response.text == "OK":
@@ -228,6 +236,7 @@ class KafkaDataProcessor:
                     return res
                 result = json.loads(response.text)
                 result = json.loads(result)
+                print("=", end="")
                 if isinstance(result, dict):
                     res = {
                         "process_time": process_time,
@@ -237,6 +246,8 @@ class KafkaDataProcessor:
                     return res
             except Exception as e:
                 print(f"ERROR REQUEST: {str(e)}")
+                print("URL :", url, data["station_code"])
+                # print(data)
                 t.sleep(1)
                 continue
         return None
@@ -304,6 +315,7 @@ class KafkaDataProcessor:
         return mag / 3
 
     def __get_epic_ml(self, wf: list[dict]):
+        print("get_epic_ml")
         station_codes = []
         station_latitudes = []
         station_longitudes = []
