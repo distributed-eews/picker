@@ -1,6 +1,7 @@
 import os
 from app.container import KafkaContainer
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -12,6 +13,8 @@ MONGO_DB = os.getenv('MONGO_DB', 'eews')
 MONGO_HOST = os.getenv('MONGO_HOST', 'localhost')
 MONGO_PORT = os.getenv('MONGO_PORT', '27017')
 MONGO_COLLECTION = os.getenv('MONGO_COLLECTION', 'parameters')
+PROMETHEUS_ADDR = os.getenv('PROMETHEUS_ADDR', '0.0.0.0')
+PROMETHEUS_PORT = os.getenv('PROMETHEUS_PORT', '8012')
 
 if __name__ == "__main__":
     container = KafkaContainer()
@@ -32,8 +35,14 @@ if __name__ == "__main__":
                 'host': MONGO_HOST,
                 'port': int(MONGO_PORT),
                 'collection': MONGO_COLLECTION,
+            },
+            'prometheus': {
+                'addr': PROMETHEUS_ADDR,
+                'port': int(PROMETHEUS_PORT),
             }
         }, True)
+    promethues = container.prometheus()
+    promethues.start()
     data_processor = container.data_processor()
     print("=" * 20 + f"Consuming Data From {TOPIC_CONSUMER} Topic" + "=" * 20)
     data_processor.consume(TOPIC_CONSUMER)

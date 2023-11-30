@@ -17,6 +17,7 @@ numpy==1.26.1
 obspy==1.4.0
 packaging==23.2
 Pillow==10.1.0
+prometheus-client==0.19.0
 pycodestyle==2.11.1
 pymongo==4.6.0
 pyparsing==3.1.1
