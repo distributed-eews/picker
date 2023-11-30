@@ -1,9 +1,9 @@
 from prometheus_client import start_http_server, Counter, Summary
 
-TOTAL_PREDICTED_DATA = Counter('total_predicted_data', 'Number of data predicted')
-TOTAL_PREDICTION_TIME = Summary('total_prediction_time', 'Total prediction time for requests')
-TOTAL_RECEIVED_DATA = Counter('total_received_data', 'Number of data received')
-TOTAL_RECEIVED_TIME = Summary('total_received_time', 'Total received time for requests')
+TOTAL_PREDICTED_DATA = Counter('picker_total_predicted_data', 'Number of data predicted')
+TOTAL_PREDICTION_TIME = Summary('picker_total_prediction_time', 'Total prediction time for requests')
+TOTAL_RECEIVED_DATA = Counter('picker_total_received_data', 'Number of data received')
+TOTAL_RECEIVED_TIME = Summary('picker_total_received_time', 'Total received time for requests')
 
 class Prometheus:
     def __init__(self, port = 8012, addr = "0.0.0.0"):
