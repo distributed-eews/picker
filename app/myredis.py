@@ -49,18 +49,19 @@ class MyRedis:
         loc = [float(l) for l in loc]
         return loc
     
-    # def get_3_waveform(self, station: str):
-    #     print("get_3_waveform")
-    #     stations = self.get_nearest_stations(station)
-    #     for st in stations:
-    #         data = self._get_3_waveform(st)
-    #         if data is not None and len(data) >= 3:
-    #             d = data[:3]
-    #             print(d)
-    #             return d
-    #     return None
-
     def get_3_waveform(self, station: str):
+        print("get_3_waveform")
+        nearest_stats = self.get_nearest_stations(station)
+        nearest_stats.extend([station])
+        for st in nearest_stats:
+            data = self._get_3_waveform(st)
+            if data is not None and len(data) >= 3:
+                d = data[:3]
+                print(d)
+                return d
+        return None
+
+    def _get_3_waveform(self, station: str):
         if not self.has_3_waveform(station):
             print("No 3 waveform found")
             return None
