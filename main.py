@@ -17,6 +17,7 @@ PROMETHEUS_ADDR = os.getenv('PROMETHEUS_ADDR', '0.0.0.0')
 PROMETHEUS_PORT = os.getenv('PROMETHEUS_PORT', '8012')
 
 if __name__ == "__main__":
+    print("2")
     container = KafkaContainer()
     container.config.from_dict(
         {
