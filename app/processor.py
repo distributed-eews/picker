@@ -13,7 +13,7 @@ from .mongo import MongoDBClient
 import numpy as np
 from scipy.optimize import minimize
 import math
-
+from .prometheus import Prometheus
 
 load_dotenv()
 
@@ -28,12 +28,13 @@ TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER', 'pick')
 
 
 class KafkaDataProcessor:
-    def __init__(self, consumer: Consumer, producer: Producer, pooler: Pooler, redis: MyRedis, mongo: MongoDBClient):
+    def __init__(self, consumer: Consumer, producer: Producer, pooler: Pooler, redis: MyRedis, mongo: MongoDBClient, prometheus: Prometheus):
         self.consumer = consumer
         self.producer = producer
         self.pooler = pooler
         self.redis = redis
         self.mongo = mongo
+        self.prometheus = prometheus
 
     def consume(self, topic: str):
         self.consumer.subscribe([topic])
@@ -63,10 +64,18 @@ class KafkaDataProcessor:
                 if "type" in value and value["type"] != "trace":
                     continue
 
-                # print(("="*30) + "START" + ("="*30), end="\n")
-                # print(f"RECEIVED MESSAGE: {logvalue}", end="\n")
+                print(("="*30) + "START" + ("="*30), end="\n")
+                print(f"RECEIVED MESSAGE: {logvalue}", end="\n")
+                start_time = datetime.now()
+                len_data = len(value['data'])
+
                 self.__process_received_data(value)
-                # print(("="*30) + "END" + ("="*30), end="\n")
+                
+                end_time = datetime.now()
+                process_time = (end_time - start_time).total_seconds()
+                self.prometheus.inc_rec_data(len_data)
+                self.prometheus.obs_rec_time(process_time)
+                print(("="*30) + "END" + ("="*30), end="\n")
             except Exception as e:
                 print(f"ERROR: {str(e)}")
                 print(e)
@@ -228,6 +237,8 @@ class KafkaDataProcessor:
                 end_time = datetime.now()
                 process_time = (end_time - start_time).total_seconds()
                 if response.text == "OK":
+                    self.prometheus.inc_pred_data()
+                    self.prometheus.obs_pred_time(process_time)
                     res = {
                         "process_time": process_time,
                         "result": {}
@@ -238,6 +249,8 @@ class KafkaDataProcessor:
                 result = json.loads(result)
                 print("=", end="")
                 if isinstance(result, dict):
+                    self.prometheus.inc_pred_data()
+                    self.prometheus.obs_pred_time(process_time)
                     res = {
                         "process_time": process_time,
                         "result": result
@@ -285,35 +298,7 @@ class KafkaDataProcessor:
         lon = np.rad2deg(np.arctan2(y, x))
 
         return lat, lon
-
-    def __get_epic(self, wf: list[dict]):
-        stat1 = wf[0]
-        stat2 = wf[1]
-        stat3 = wf[2]
-
-        loc1 = (stat1["location"][0], stat1["location"][1])
-        loc2 = (stat2["location"][0], stat2["location"][1])
-        loc3 = (stat3["location"][0], stat3["location"][1])
-
-        r1 = stat1["distance"]
-        r2 = stat2["distance"]
-        r3 = stat3["distance"]
-
-        p1 = self.to_cartesian(*loc1)
-        p2 = self.to_cartesian(*loc2)
-        p3 = self.to_cartesian(*loc3)
-
-        epicenter = self.trilaterate(p1, p2, p3, r1, r2, r3)
-
-        return [epicenter[0], epicenter[1]]
-
-    def __get_mag(self, wf: list[dict]):
-        mag = 0
-        for w in wf:
-            mag += w["magnitude"]
-
-        return mag / 3
-
+    
     def __get_epic_ml(self, wf: list[dict]):
         print("get_epic_ml")
         station_codes = []
