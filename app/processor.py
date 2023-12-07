@@ -18,17 +18,23 @@ from .prometheus import Prometheus
 load_dotenv()
 
 
-PRED_URL = os.getenv('PRED_URL', 'http://localhost:3000/predict')
-INIT_URL = os.getenv('INIT_URL', 'http://localhost:3000/restart')
-STAT_URL = os.getenv(
-    'STAT_URL', 'http://localhost:3000/approx_earthquake_statistics')
-REC_URL = os.getenv(
-    'REC_URL', 'http://localhost:3000/recalculate')
-TOPIC_PRODUCER = os.getenv('TOPIC_PRODUCER', 'pick')
+PRED_URL = os.getenv("PRED_URL", "http://localhost:3000/predict")
+INIT_URL = os.getenv("INIT_URL", "http://localhost:3000/restart")
+STAT_URL = os.getenv("STAT_URL", "http://localhost:3000/approx_earthquake_statistics")
+REC_URL = os.getenv("REC_URL", "http://localhost:3000/recalculate")
+TOPIC_PRODUCER = os.getenv("TOPIC_PRODUCER", "pick")
 
 
 class KafkaDataProcessor:
-    def __init__(self, consumer: Consumer, producer: Producer, pooler: Pooler, redis: MyRedis, mongo: MongoDBClient, prometheus: Prometheus):
+    def __init__(
+        self,
+        consumer: Consumer,
+        producer: Producer,
+        pooler: Pooler,
+        redis: MyRedis,
+        mongo: MongoDBClient,
+        prometheus: Prometheus,
+    ):
         self.consumer = consumer
         self.producer = producer
         self.pooler = pooler
@@ -64,18 +70,18 @@ class KafkaDataProcessor:
                 if "type" in value and value["type"] != "trace":
                     continue
 
-                print(("="*30) + "START" + ("="*30), end="\n")
+                print(("=" * 30) + "START" + ("=" * 30), end="\n")
                 print(f"RECEIVED MESSAGE: {logvalue}", end="\n")
                 start_time = datetime.now()
-                len_data = len(value['data'])
+                len_data = len(value["data"])
 
                 self.__process_received_data(value)
-                
+
                 end_time = datetime.now()
                 process_time = (end_time - start_time).total_seconds()
                 self.prometheus.inc_rec_data(len_data)
                 self.prometheus.obs_rec_time(process_time)
-                print(("="*30) + "END" + ("="*30), end="\n")
+                print(("=" * 30) + "END" + ("=" * 30), end="\n")
             except Exception as e:
                 print(f"ERROR: {str(e)}")
                 print(e)
@@ -83,10 +89,10 @@ class KafkaDataProcessor:
                 continue
 
     def __process_received_data(self, value: Dict[str, Any]):
-        station = value['station']
-        channel = value['channel']
-        starttime = datetime.fromisoformat(value['starttime'])
-        data = value['data']
+        station = value["station"]
+        channel = value["channel"]
+        starttime = datetime.fromisoformat(value["starttime"])
+        data = value["data"]
         self.pooler.set_station_first_start_time(station, starttime)
         self.pooler.extend_data_points(station, channel, data)
 
@@ -97,7 +103,7 @@ class KafkaDataProcessor:
             return
 
         if not has_initiated and is_ready_to_init:
-            print("init ",station, channel)
+            print("init ", station, channel)
             self.__init_station(station)
             return
 
@@ -114,8 +120,14 @@ class KafkaDataProcessor:
         data = [list(x) for x in zip(*data)]
 
         res1 = self.__req(INIT_URL, {"station_code": station})
-        res2 = self.__req(PRED_URL, {"station_code": station, "begin_time": time.strftime(
-            "%Y-%m-%d %H:%M:%S.%f"), "x": data})
+        res2 = self.__req(
+            PRED_URL,
+            {
+                "station_code": station,
+                "begin_time": time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "x": data,
+            },
+        )
 
         if res1 and res2:
             self.pooler.add_initiated_station(station)
@@ -136,8 +148,14 @@ class KafkaDataProcessor:
         #     self.__pred_stats(station, time)
         #     return
 
-        res = self.__req(PRED_URL, {"station_code": station, "begin_time": time.strftime(
-            "%Y-%m-%d %H:%M:%S.%f"), "x": data_t})
+        res = self.__req(
+            PRED_URL,
+            {
+                "station_code": station,
+                "begin_time": time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "x": data_t,
+            },
+        )
 
         if res is None:
             return
@@ -164,10 +182,8 @@ class KafkaDataProcessor:
         prev_p_time_exists = station in self.pooler.station_p_time
         prev_s_time_exists = station in self.pooler.station_s_time
 
-        p_time = datetime.strptime(
-            result["p_arr_time"], "%Y-%m-%d %H:%M:%S.%f")
-        s_time = datetime.strptime(
-            result["s_arr_time"], "%Y-%m-%d %H:%M:%S.%f")
+        p_time = datetime.strptime(result["p_arr_time"], "%Y-%m-%d %H:%M:%S.%f")
+        s_time = datetime.strptime(result["s_arr_time"], "%Y-%m-%d %H:%M:%S.%f")
 
         if not prev_p_time_exists and not prev_s_time_exists and p_arr and s_arr:
             self.pooler.set_caches(station, data, True)
@@ -175,8 +191,7 @@ class KafkaDataProcessor:
             return
 
         if prev_p_time_exists and not prev_s_time_exists:
-            diff_secs = (
-                time - self.pooler.station_p_time[station]).total_seconds()
+            diff_secs = (time - self.pooler.station_p_time[station]).total_seconds()
             if (diff_secs >= 60 and not s_arr) or s_arr:
                 self.pooler.set_caches(station, data, True)
                 self.__pred_stats(station, time)
@@ -194,7 +209,8 @@ class KafkaDataProcessor:
         data_cache = self.pooler.get_cache(station)
         data_cache_t = self.__transpose(data_cache)
         res = self.__req(
-            STAT_URL, {"x": data_cache_t, "station_code": station}, isPred=True)
+            STAT_URL, {"x": data_cache_t, "station_code": station}, isPred=True
+        )
         if res:
             result = res["result"]
             result["process_time"] = res["process_time"]
@@ -203,7 +219,7 @@ class KafkaDataProcessor:
             print(f"WF3: {wf3}")
             # self.producer.produce({"wf3": wf3})
             if wf3 is not None and len(wf3) >= 3:
-                print("X"*40)
+                print("X" * 40)
                 epic = self.__get_epic_ml(wf3)
                 payload = {
                     "time": time.isoformat(),
@@ -212,7 +228,7 @@ class KafkaDataProcessor:
                     # "location": self.__get_epic(wf3),
                     # "magnitude": self.__get_mag(wf3),
                     "station": "PARAMS",
-                    "type": "params"
+                    "type": "params",
                 }
                 self.producer.produce(payload)
                 self.redis.remove_3_waveform_dict(wf3)
@@ -226,8 +242,7 @@ class KafkaDataProcessor:
             start_time = datetime.now()
             try:
                 # print(f"RETRY {i + 1}")
-                response = requests.post(
-                    url, data=json.dumps(data), timeout=timeout)
+                response = requests.post(url, data=json.dumps(data), timeout=timeout)
                 if response.status_code != 200:
                     print(response.status_code, response.reason)
                     print(response.json())
@@ -238,26 +253,24 @@ class KafkaDataProcessor:
                 process_time = (end_time - start_time).total_seconds()
                 if response.text == "OK":
                     self.prometheus.inc_pred_data()
+                    self.prometheus.inc_pred_req_suc()
                     self.prometheus.obs_pred_time(process_time)
-                    res = {
-                        "process_time": process_time,
-                        "result": {}
-                    }
+                    res = {"process_time": process_time, "result": {}}
                     # print(f"RESULT FROM 1 {url}: {res}")
                     return res
                 result = json.loads(response.text)
                 result = json.loads(result)
                 print("=", end="")
                 if isinstance(result, dict):
-                    self.prometheus.inc_pred_data()
+                    self.prometheus.inc_pred_data(len(data["x"]))
+                    self.prometheus.inc_pred_req_suc()
                     self.prometheus.obs_pred_time(process_time)
-                    res = {
-                        "process_time": process_time,
-                        "result": result
-                    }
+                    res = {"process_time": process_time, "result": result}
                     # print(f"RESULT FROM 2 {url}: {res}")
                     return res
+                # self.prometheus.inc_pred_req_err()
             except Exception as e:
+                self.prometheus.inc_pred_req_err()
                 print(f"ERROR REQUEST: {str(e)}")
                 print("URL :", url, data["station_code"])
                 # print(data)
@@ -287,7 +300,7 @@ class KafkaDataProcessor:
             return abs(error(x, p1, r1)) + abs(error(x, p2, r2)) + abs(error(x, p3, r3))
 
         initial_guess = (p1 + p2 + p3) / 3
-        result = minimize(total_error, initial_guess, method='Nelder-Mead')
+        result = minimize(total_error, initial_guess, method="Nelder-Mead")
         # print(result)
 
         if not result.success:
@@ -298,7 +311,7 @@ class KafkaDataProcessor:
         lon = np.rad2deg(np.arctan2(y, x))
 
         return lat, lon
-    
+
     def __get_epic_ml(self, wf: list[dict]):
         print("get_epic_ml")
         station_codes = []
@@ -322,7 +335,7 @@ class KafkaDataProcessor:
             "station_longitudes": station_longitudes,
             "magnitudes": magnitudes,
             "distances": distances,
-            "depths": depths
+            "depths": depths,
         }
         print(f"REC PAYLOAD: {payload}")
         # res = self.__req(REC_URL, payload)
@@ -336,12 +349,13 @@ class KafkaDataProcessor:
     def recalculate(self, input_data: dict) -> dict:
         # Unpack json data
         magnitudes: np.ndarray = np.array(input_data["magnitudes"])
-        distances: np.ndarray = np.array(
-            input_data["distances"]).astype(np.complex128)
+        distances: np.ndarray = np.array(input_data["distances"]).astype(np.complex128)
         station_latitudes: np.ndarray = np.array(
-            input_data["station_latitudes"]).astype(np.complex128)
+            input_data["station_latitudes"]
+        ).astype(np.complex128)
         station_longitudes: np.ndarray = np.array(
-            input_data["station_longitudes"]).astype(np.complex128)
+            input_data["station_longitudes"]
+        ).astype(np.complex128)
 
         # Cache values
         station_latitudes_rad = station_latitudes / 180.0 * np.pi * 6371.0
@@ -354,11 +368,15 @@ class KafkaDataProcessor:
         # TODO : This formula is only for flat euclidian R2 space,
         #  find another more precise formula for intersection of three spheres.
         points = []
-        for i in range(len(station_latitudes)-1):
-            for j in range(i+1, len(station_latitudes)):
+        for i in range(len(station_latitudes) - 1):
+            for j in range(i + 1, len(station_latitudes)):
                 # distance between two stations
-                R = self.haversine(station_latitudes[i], station_longitudes[i],
-                                   station_latitudes[j], station_longitudes[j])
+                R = self.haversine(
+                    station_latitudes[i],
+                    station_longitudes[i],
+                    station_latitudes[j],
+                    station_longitudes[j],
+                )
 
                 # Radians position of two stations
                 xi = station_latitudes_rad[i]
@@ -368,17 +386,33 @@ class KafkaDataProcessor:
                 ri = distances[i]
                 rj = distances[j]
 
-                x_delta = 0.5 * np.sqrt(
-                    2 * (ri**2+rj**2)/R**2 - (ri**2-rj**2)**2/R**4 - 1
-                ) * (yj-yi)
+                x_delta = (
+                    0.5
+                    * np.sqrt(
+                        2 * (ri**2 + rj**2) / R**2
+                        - (ri**2 - rj**2) ** 2 / R**4
+                        - 1
+                    )
+                    * (yj - yi)
+                )
 
-                y_delta = 0.5 * np.sqrt(
-                    2 * (ri**2+rj**2)/R**2 - (ri**2-rj**2)**2/R**4 - 1
-                ) * (xi-xj)
+                y_delta = (
+                    0.5
+                    * np.sqrt(
+                        2 * (ri**2 + rj**2) / R**2
+                        - (ri**2 - rj**2) ** 2 / R**4
+                        - 1
+                    )
+                    * (xi - xj)
+                )
 
-                x_base = 0.5*(xi+xj) + (ri**2-rj**2)/(2*R**2) * (xj-xi)
+                x_base = 0.5 * (xi + xj) + (ri**2 - rj**2) / (2 * R**2) * (
+                    xj - xi
+                )
 
-                y_base = 0.5*(yi+yj) + (ri**2-rj**2)/(2*R**2) * (yj-yi)
+                y_base = 0.5 * (yi + yj) + (ri**2 - rj**2) / (2 * R**2) * (
+                    yj - yi
+                )
 
                 x_1 = x_base + x_delta
                 x_2 = x_base - x_delta
@@ -395,7 +429,8 @@ class KafkaDataProcessor:
                 for k in range(2):
                     # Generate triplets
                     triplet: np.ndarray = np.array(
-                        [points[0][i], points[1][j], points[2][k]])
+                        [points[0][i], points[1][j], points[2][k]]
+                    )
                     triplets.append(triplet)
 
                     # Calculate variance
@@ -423,13 +458,12 @@ class KafkaDataProcessor:
             "magnitude": float(magnitude),
             "latitude": float(ans[0]),
             "longitude": float(ans[1]),
-            "depth": 0.0
+            "depth": 0.0,
         }
 
         return output
 
     def haversine(self, lat1, lon1, lat2, lon2):
-
         # Convert latitude and longitude from degrees to radians
         lat1_rad = math.radians(lat1)
         lon1_rad = math.radians(lon1)
@@ -441,8 +475,10 @@ class KafkaDataProcessor:
         dlon = lon2_rad - lon1_rad
 
         # Haversine formula
-        a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * \
-            math.cos(lat2_rad) * math.sin(dlon / 2)**2
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+        )
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
         distance = 6371.0 * c
